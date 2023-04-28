@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -10,9 +12,16 @@ import (
 	"github.com/vincent-vinf/go-jsend"
 
 	"github.com/plant-shutter/plant-shutter-server/pkg/db"
+	"github.com/plant-shutter/plant-shutter-server/pkg/orm"
 	"github.com/plant-shutter/plant-shutter-server/pkg/storage"
 	"github.com/plant-shutter/plant-shutter-server/pkg/utils"
 	"github.com/plant-shutter/plant-shutter-server/pkg/utils/config"
+)
+
+const (
+	DeviceNameHeader = "Device-Name"
+
+	GinDeviceKey = "device"
 )
 
 var (
@@ -50,14 +59,20 @@ func main() {
 		c.JSON(http.StatusNotFound, jsend.SimpleErr("page not found"))
 	})
 
-	router := r.Group("/api/device")
-	router.Use(DeviceAuthMiddleware())
-	router.POST("/:device/:project/upload", upload)
+	clientRouter := r.Group("/api/device")
+	clientRouter.Use(DeviceAuthMiddleware())
+	clientRouter.POST("/project/:project/upload", upload)
+
+	customerRouter := r.Group("/api/customer")
+	customerRouter.GET("/device/:device/project/:project")
 
 	utils.ListenAndServe(r, *port)
 }
 
 func upload(c *gin.Context) {
+	device := getDeviceFormReq(c)
+	projectName := c.Param("project")
+	/// todo: check projectName exist
 	file, err := c.FormFile("image")
 	if err != nil {
 		internalErr(c, "image not found", err)
@@ -68,12 +83,19 @@ func upload(c *gin.Context) {
 		internalErr(c, "open file err", err)
 		return
 	}
+	defer src.Close()
 
-	if err = imageStorage.Save("1", "2", "3", src); err != nil {
+	data, err := io.ReadAll(src)
+	if err != nil {
+		internalErr(c, "read file err", err)
+		return
+	}
+
+	fileName := utils.GetFileName(data)
+	if err = imageStorage.Save(device.Name, projectName, fileName, bytes.NewReader(data)); err != nil {
 		internalErr(c, "sava file err", err)
 		return
 	}
-	defer src.Close()
 
 	c.JSON(http.StatusOK, jsend.Success(fmt.Sprintf("'%s' uploaded!", file.Filename)))
 }
@@ -85,7 +107,39 @@ func internalErr(c *gin.Context, msg string, err error) {
 
 func DeviceAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		//c.Abort()
-		logger.Info(c.Request.Header)
+		var deviceName string
+		if d, ok := c.Request.Header[DeviceNameHeader]; ok && len(d) > 0 && d[0] != "" {
+			deviceName = d[0]
+		} else {
+			c.Abort()
+			c.JSON(http.StatusUnauthorized, jsend.SimpleErr("device name not found in header"))
+			return
+		}
+
+		device, err := db.GetDeviceByName(deviceName)
+		if err != nil {
+			c.Abort()
+			internalErr(c, "get device by name err", err)
+			return
+		}
+		if device == nil {
+			c.Abort()
+			c.JSON(http.StatusUnauthorized, jsend.SimpleErr("device name not found"))
+			return
+		}
+		c.Set(GinDeviceKey, *device)
 	}
+}
+
+func getDeviceFormReq(c *gin.Context) *orm.Device {
+	d, ok := c.Get(GinDeviceKey)
+	if !ok {
+		return nil
+	}
+	device, ok := d.(orm.Device)
+	if !ok {
+		return nil
+	}
+
+	return &device
 }

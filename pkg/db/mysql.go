@@ -18,6 +18,10 @@ var (
 	cfg  config.Mysql
 )
 
+var (
+	NotFoundErr = fmt.Errorf("not found")
+)
+
 func Init(config config.Mysql) {
 	cfg = config
 }
@@ -49,6 +53,10 @@ func GetDeviceByID(id int) (*orm.Device, error) {
 	return selectDevice("id = ?", id)
 }
 
+func GetDeviceByName(name string) (*orm.Device, error) {
+	return selectDevice("name_ = ?", name)
+}
+
 func selectDevice(where string, args ...any) (*orm.Device, error) {
 	db := getInstance()
 	rows, err := db.Query("select * from device where "+where, args...)
@@ -56,14 +64,15 @@ func selectDevice(where string, args ...any) (*orm.Device, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	v := &orm.Device{}
+
 	if rows.Next() {
+		v := &orm.Device{}
 		if err = rows.Scan(&v.ID, &v.Name, &v.Info, &v.LastActivity, &v.CreatedAt); err != nil {
 			return nil, err
 		}
+		return v, nil
 	} else {
-		return nil, fmt.Errorf("not found")
+		return nil, nil
 	}
 
-	return v, nil
 }

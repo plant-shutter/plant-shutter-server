@@ -21,8 +21,8 @@ func New(cfg config.ImageStorage) (*Storage, error) {
 	return &Storage{path: cfg.Path}, nil
 }
 
-func (s *Storage) Save(deviceID, project, fileName string, src io.Reader) error {
-	dst := path.Join(s.path, deviceID, project, fileName)
+func (s *Storage) Save(deviceName, project, fileName string, src io.Reader) error {
+	dst := s.GetPath(deviceName, project, fileName)
 	if err := os.MkdirAll(filepath.Dir(dst), 0750); err != nil {
 		return err
 	}
@@ -35,4 +35,8 @@ func (s *Storage) Save(deviceID, project, fileName string, src io.Reader) error 
 
 	_, err = io.Copy(out, src)
 	return err
+}
+
+func (s *Storage) GetPath(deviceName, project, fileName string) string {
+	return path.Join(s.path, deviceName, project, fileName)
 }
