@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 
 	"github.com/plant-shutter/plant-shutter-server/pkg/utils/config"
 )
@@ -21,8 +22,8 @@ func New(cfg config.ImageStorage) (*Storage, error) {
 	return &Storage{path: cfg.Path}, nil
 }
 
-func (s *Storage) Save(deviceName, project, fileName string, src io.Reader) error {
-	dst := s.GetPath(deviceName, project, fileName)
+func (s *Storage) Save(projectID int, fileName string, src io.Reader) error {
+	dst := s.GetPath(projectID, fileName)
 	if err := os.MkdirAll(filepath.Dir(dst), 0750); err != nil {
 		return err
 	}
@@ -37,6 +38,6 @@ func (s *Storage) Save(deviceName, project, fileName string, src io.Reader) erro
 	return err
 }
 
-func (s *Storage) GetPath(deviceName, project, fileName string) string {
-	return path.Join(s.path, deviceName, project, fileName)
+func (s *Storage) GetPath(projectID int, fileName string) string {
+	return path.Join(s.path, strconv.Itoa(projectID), fileName)
 }

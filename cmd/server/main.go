@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -61,23 +63,54 @@ func main() {
 
 	clientRouter := r.Group("/api/device")
 	clientRouter.Use(DeviceAuthMiddleware())
-	clientRouter.POST("/project/:project/upload", upload)
+	clientRouter.POST("/project/:project/upload", uploadImage)
 
 	customerRouter := r.Group("/api/customer")
-	customerRouter.GET("/device/:device/project/:project")
+	customerRouter.GET("/project/:project/image", getImage)
 
 	utils.ListenAndServe(r, *port)
 }
 
-func upload(c *gin.Context) {
-	device := getDeviceFormReq(c)
-	projectName := c.Param("project")
-	/// todo: check projectName exist
-	file, err := c.FormFile("image")
+func getImage(c *gin.Context) {
+	pid, _ := strconv.Atoi(c.Param("project"))
+	project, err := db.GetProjectByID(pid)
 	if err != nil {
-		internalErr(c, "image not found", err)
+		internalErr(c, "get project failed", err)
 		return
 	}
+	if project == nil {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr("project not found"))
+		return
+	}
+
+	image, err := db.GetProjectLatestImage(project.ID)
+	if err != nil {
+		internalErr(c, "get latest image failed", err)
+		return
+	}
+	c.File(imageStorage.GetPath(project.ID, image.Name))
+}
+
+func uploadImage(c *gin.Context) {
+	//device := getDeviceFormReq(c)
+	// todo: check device with project
+	pid, _ := strconv.Atoi(c.Param("project"))
+	project, err := db.GetProjectByID(pid)
+	if err != nil {
+		internalErr(c, "get project failed", err)
+		return
+	}
+	if project == nil {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr("project not found"))
+		return
+	}
+
+	file, err := c.FormFile("image")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, jsend.SimpleErr("image not found"))
+		return
+	}
+
 	src, err := file.Open()
 	if err != nil {
 		internalErr(c, "open file err", err)
@@ -92,7 +125,18 @@ func upload(c *gin.Context) {
 	}
 
 	fileName := utils.GetFileName(data)
-	if err = imageStorage.Save(device.Name, projectName, fileName, bytes.NewReader(data)); err != nil {
+
+	image := &orm.Image{
+		ProjectID: project.ID,
+		Name:      fileName,
+		CreatedAt: time.Now(),
+	}
+	if err = db.AddImage(image); err != nil {
+		internalErr(c, "insert image to db failed", err)
+		return
+	}
+
+	if err = imageStorage.Save(project.ID, fileName, bytes.NewReader(data)); err != nil {
 		internalErr(c, "sava file err", err)
 		return
 	}
